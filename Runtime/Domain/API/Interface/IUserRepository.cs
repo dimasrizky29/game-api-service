@@ -14,4 +14,6 @@ public interface IUserRepository
     void UpdateCachedUser(Action<UserData> updateAction);
 
     event Action<UserData> OnUserDataUpdated;
+
+    void ClearData();
 }
