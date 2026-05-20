@@ -104,5 +104,10 @@ public class UserRepository : IUserRepository
     {
         OnUserDataUpdated?.Invoke(_cachedUser);
     }
+
+    public void ClearData()
+    {
+        _cachedUser = null;
+    }
     #endregion
 }

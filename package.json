@@ -1,7 +1,7 @@
 {
   "name": "com.yatechstudio.apiservice",
   "displayName": "API Service",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "unity": "6000.3",
   "unityRelease": "7f1",
   "description": "A robust, high-performance, and modular REST API package for Unity projects. Built on top of `UnityWebRequest` and completely integrated with `UniTask` to provide zero-allocation asynchronous routines.",

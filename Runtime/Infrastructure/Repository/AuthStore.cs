@@ -43,6 +43,7 @@ public class AuthStore : IAuthStore
 
         //save to PlayerPrefs or secure storage
         PlayerPrefs.DeleteKey("auth-token");
+        PlayerPrefs.Save();
     }
 
     /// <summary>
