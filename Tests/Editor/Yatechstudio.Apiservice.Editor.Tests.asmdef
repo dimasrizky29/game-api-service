@@ -2,7 +2,7 @@
     "name": "Unity84b3bb65eed9dd219507.Apiservice.Editor.Tests",
     "rootNamespace": "Game.Tests.EditMode",
     "references": [
-        "Unity84b3bb65eed9dd219507.Apiservice",
+        "Yatechstudio.Apiservice",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
         "UniTask"
@@ -15,7 +15,8 @@
     "overrideReferences": true,
     "precompiledReferences": [
         "nunit.framework.dll",
-        "NSubstitute.dll"
+        "NSubstitute.dll",
+        "Newtonsoft.Json.dll"
     ],
     "autoReferenced": false,
     "defineConstraints": [
