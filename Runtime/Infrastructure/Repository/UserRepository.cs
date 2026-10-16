@@ -4,18 +4,9 @@ using Cysharp.Threading.Tasks;
 
 public class UserRepository<TUser> : IUserRepository<TUser> where TUser : UserData
 {
-    #region User Data 
+    #region User Data
     // Data disimpan di sini (In-Memory)
     private TUser _cachedUser;
-    private TUser ChachedUser
-    {
-        get => _cachedUser;
-        set
-        {
-            _cachedUser = value;
-            OnUserDataUpdated?.Invoke(_cachedUser); // Beritahu yang subscribe kalau data berubah
-        }
-    }
 
     private readonly IUserApiService<TUser> _userApiService;
 
@@ -31,57 +22,56 @@ public class UserRepository<TUser> : IUserRepository<TUser> where TUser : UserDa
     public async UniTask<TUser> GetUserData(bool forceRefresh = false, CancellationToken ct = default)
     {
         // Jika data sudah ada di gudang dan tidak minta refresh, berikan yang ada
-        if (ChachedUser != null && !forceRefresh)
-            return ChachedUser;
+        if (_cachedUser != null && !forceRefresh)
+            return _cachedUser;
 
         // Jika belum ada, ambil dari API Service
         var result = await _userApiService.GetUserAsync(ct);
-        if (result.IsSuccess)
-        {
-            ChachedUser = result.Data;
-            return ChachedUser;
-        }
+        if (!result.IsSuccess)
+            throw new Exception(result.ErrorMessage);
 
-        // Jika gagal, kamu bisa melempar Exception atau menggunakan pola Result
-        throw new Exception(result.ErrorMessage ?? "Failed to fetch user data");
+        _cachedUser = result.Data;
+        Notify();
+        return _cachedUser;
     }
 
     public async UniTask<TUser> UpdateUsername(string username, CancellationToken ct = default)
     {
         var result = await _userApiService.UpdateUsernameAsync(username, ct);
-        if (result.IsSuccess)
-        {
-            ChachedUser.Username = username;
-            ForceRefreshUI();
-            return ChachedUser;
-        }
+        if (!result.IsSuccess)
+            throw new Exception(result.ErrorMessage);
 
-        // Jika gagal, kamu bisa melempar Exception atau menggunakan pola Result
-        throw new Exception(result.ErrorMessage ?? "Failed to update username");
+        // Cache kosong (belum pernah GetUserData): tidak ada yang di-patch, return null.
+        if (_cachedUser != null)
+        {
+            _cachedUser.Username = username;
+            Notify();
+        }
+        return _cachedUser;
     }
 
     public async UniTask<TUser> UpdateAvatar(string avatarId, CancellationToken ct = default)
     {
         var result = await _userApiService.UpdateAvatarAsync(avatarId, ct);
-        if (result.IsSuccess)
-        {
-            ChachedUser.AvatarId = avatarId;
-            ForceRefreshUI();
-            return ChachedUser;
-        }
+        if (!result.IsSuccess)
+            throw new Exception(result.ErrorMessage);
 
-        // Jika gagal, kamu bisa melempar Exception atau menggunakan pola Result
-        throw new Exception(result.ErrorMessage ?? "Failed to update avatar");
+        if (_cachedUser != null)
+        {
+            _cachedUser.AvatarId = avatarId;
+            Notify();
+        }
+        return _cachedUser;
     }
 
     public async UniTask<ApiResponseDto<object>> DeactivateUser(string reason, CancellationToken ct = default)
     {
         var result = await _userApiService.DeactivateUserAsync(reason, ct);
 
-        // 2. Jika sukses di server, bersihkan cache lokal
+        // Jika sukses di server, bersihkan cache lokal
         if (result.IsSuccess)
         {
-            ChachedUser = null; // Data dihapus dari "Gudang"
+            ClearData();
             LoggerService.Info("User session cleared from repository cache.");
         }
 
@@ -95,19 +85,21 @@ public class UserRepository<TUser> : IUserRepository<TUser> where TUser : UserDa
 
         updateAction.Invoke(_cachedUser);
 
-        ForceRefreshUI(); // Trigger event untuk update UI
+        Notify(); // Trigger event untuk update UI
 
         LoggerService.LogDebug("Cached user data updated and UI refresh triggered.");
-    }
-
-    private void ForceRefreshUI()
-    {
-        OnUserDataUpdated?.Invoke(_cachedUser);
     }
 
     public void ClearData()
     {
         _cachedUser = null;
+        Notify();
+    }
+
+    // Satu-satunya tempat event dipicu: tiap mutasi memanggilnya tepat sekali.
+    private void Notify()
+    {
+        OnUserDataUpdated?.Invoke(_cachedUser);
     }
     #endregion
 }
