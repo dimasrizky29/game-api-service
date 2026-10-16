@@ -1,6 +1,6 @@
 # Unity Advanced API Service Package
 
-A robust, high-performance, and modular REST API package for Unity projects. Built on top of `UnityWebRequest` and completely integrated with `UniTask` to provide zero-allocation asynchronous routines.
+A robust, high-performance, and modular REST API package for Unity projects. Built on top of `UnityWebRequest` and completely integrated with `UniTask` to provide low-allocation asynchronous routines.
 
 ## 🚀 Features
 
@@ -15,6 +15,16 @@ A robust, high-performance, and modular REST API package for Unity projects. Bui
 - [UniTask](https://github.com/Cysharp/UniTask)
 - [VContainer](https://vcontainer.hadashikick.jp/) (For Dependency Injection)
 - Newtonsoft.Json
+
+## 📦 Installation
+
+Package Manager → Add package from git URL:
+
+```
+https://github.com/yatech-studio/game-api-service.git#0.2.0
+```
+
+`ServiceInstaller` (Editor) auto-installs UniTask, VContainer and Logger Service if missing.
 
 ## 🛠 Setup & Initialization
 
@@ -39,8 +49,25 @@ public override void Configure(IContainerBuilder builder)
     builder.Register<IHttpClient, BaseHttpClient>(Lifetime.Singleton);
     builder.Register<IGameApiService, GameApiService>(Lifetime.Singleton);
     builder.Register<IAuthApiService, AuthApiService>(Lifetime.Singleton);
+
+    // 5. User services, closed over YOUR UserData subclass (see below)
+    builder.Register<IUserApiService<MyUserData>, UserApiService<MyUserData>>(Lifetime.Singleton);
+    builder.Register<IUserRepository<MyUserData>, UserRepository<MyUserData>>(Lifetime.Singleton);
 }
 ```
+
+## 👤 Project-specific user data
+
+The package only knows `uid`, `gameId`, `username`, `refCode`, `avatarId`. Add your own fields by subclassing, then inject `IUserRepository<MyUserData>`:
+
+```csharp
+public class MyUserData : UserData
+{
+    [JsonProperty("mail")] public MailInfo Mail { get; set; }
+}
+```
+
+Fields the server sends that your class does not declare are ignored; missing fields stay `null`/default. See `Samples~/Example/ExampleUserData.cs`.
 
 ## 📚 Usage Example
 
@@ -68,4 +95,4 @@ public async UniTaskVoid FetchLeaderboard()
 ```
 
 ## 🧪 Testing
-The package is fully armed with a native `NSubstitute` Mock testing suite configured for both `EditMode` and `PlayMode`. Accessible via the Unity Test Runner.
+`NSubstitute`-based EditMode tests cover `ApiConfig`, `AuthApiService`, `UserApiService`, `UserRepository` and `UserData` deserialization. Run via the Unity Test Runner. `BaseHttpClient` (token refresh, global error handling) is not covered yet.

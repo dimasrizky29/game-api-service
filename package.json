@@ -1,12 +1,13 @@
 {
   "name": "com.yatechstudio.apiservice",
   "displayName": "API Service",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "unity": "6000.3",
   "unityRelease": "7f1",
-  "description": "A robust, high-performance, and modular REST API package for Unity projects. Built on top of `UnityWebRequest` and completely integrated with `UniTask` to provide zero-allocation asynchronous routines.",
+  "description": "A robust, high-performance, and modular REST API package for Unity projects. Built on top of `UnityWebRequest` and completely integrated with `UniTask` to provide low-allocation asynchronous routines.",
   "dependencies": {
-    "com.unity.addressables": "2.8.1"
+    "com.unity.addressables": "2.8.1",
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
   },
   "author": {
     "name": "Yatech studio",
@@ -20,7 +21,7 @@
   "samples": [
     {
       "displayName": "Example Sample",
-      "description": "Replace this string with your own description of the sample. Delete the Samples folder if not needed.",
+      "description": "Project-specific UserData and VContainer registration.",
       "path": "Samples~/Example"
     }
   ]
