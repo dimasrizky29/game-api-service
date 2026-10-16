@@ -6,7 +6,7 @@ using System.Threading;
 /// Provides clean, reusable methods for user-related API operations.
 /// Uses UniTask for zero-allocation async operations.
 /// </summary>
-public class UserApiService : IUserApiService
+public class UserApiService<TUser> : IUserApiService<TUser> where TUser : UserData
 {
     // Dependencies (Inject lewat Constructor)
     private readonly IGameApiService _apiService;
@@ -20,33 +20,33 @@ public class UserApiService : IUserApiService
     }
 
     /// <summary>
-    /// Gets a user by ID from the API.
+    /// Gets the current user from the API.
     /// </summary>
     /// <param name="ct">Cancellation token</param>
-    /// <returns>UserData if successful, null otherwise</returns>
-    public async UniTask<ApiResponseDto<UserData>> GetUserAsync(
+    /// <returns>User data if successful</returns>
+    public async UniTask<ApiResponseDto<TUser>> GetUserAsync(
         CancellationToken ct = default)
     {
         string url = $"{_config.API_BASE_URL}/users";
-        return await _apiService.GetAsync<UserData>(url, ct);
+        return await _apiService.GetAsync<TUser>(url, ct);
     }
 
-    public async UniTask<ApiResponseDto<UserData>> UpdateUsernameAsync(
+    public async UniTask<ApiResponseDto<TUser>> UpdateUsernameAsync(
         string username,
         CancellationToken ct = default)
     {
         var data = new { username };
         string url = $"{_config.API_BASE_URL}/users/username";
-        return await _apiService.PostAsync<UserData>(url, data, ct);
+        return await _apiService.PostAsync<TUser>(url, data, ct);
     }
 
-    public async UniTask<ApiResponseDto<UserData>> UpdateAvatarAsync(
+    public async UniTask<ApiResponseDto<TUser>> UpdateAvatarAsync(
         string avatarId,
         CancellationToken ct = default)
     {
         var data = new { avatarId };
         string url = $"{_config.API_BASE_URL}/users/avatar";
-        return await _apiService.PostAsync<UserData>(url, data, ct);
+        return await _apiService.PostAsync<TUser>(url, data, ct);
     }
 
     public async UniTask<ApiResponseDto<object>> DeactivateUserAsync(

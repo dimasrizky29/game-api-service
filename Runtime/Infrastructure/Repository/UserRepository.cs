@@ -2,12 +2,12 @@ using System;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 
-public class UserRepository : IUserRepository
+public class UserRepository<TUser> : IUserRepository<TUser> where TUser : UserData
 {
     #region User Data 
     // Data disimpan di sini (In-Memory)
-    private UserData _cachedUser;
-    private UserData ChachedUser
+    private TUser _cachedUser;
+    private TUser ChachedUser
     {
         get => _cachedUser;
         set
@@ -17,18 +17,18 @@ public class UserRepository : IUserRepository
         }
     }
 
-    private readonly IUserApiService _userApiService;
+    private readonly IUserApiService<TUser> _userApiService;
 
-    public event Action<UserData> OnUserDataUpdated;
+    public event Action<TUser> OnUserDataUpdated;
 
-    public UserData CurrentUser => _cachedUser;
+    public TUser CurrentUser => _cachedUser;
 
-    public UserRepository(IUserApiService userApiService)
+    public UserRepository(IUserApiService<TUser> userApiService)
     {
         _userApiService = userApiService;
     }
 
-    public async UniTask<UserData> GetUserData(bool forceRefresh = false, CancellationToken ct = default)
+    public async UniTask<TUser> GetUserData(bool forceRefresh = false, CancellationToken ct = default)
     {
         // Jika data sudah ada di gudang dan tidak minta refresh, berikan yang ada
         if (ChachedUser != null && !forceRefresh)
@@ -46,7 +46,7 @@ public class UserRepository : IUserRepository
         throw new Exception(result.ErrorMessage ?? "Failed to fetch user data");
     }
 
-    public async UniTask<UserData> UpdateUsername(string username, CancellationToken ct = default)
+    public async UniTask<TUser> UpdateUsername(string username, CancellationToken ct = default)
     {
         var result = await _userApiService.UpdateUsernameAsync(username, ct);
         if (result.IsSuccess)
@@ -60,7 +60,7 @@ public class UserRepository : IUserRepository
         throw new Exception(result.ErrorMessage ?? "Failed to update username");
     }
 
-    public async UniTask<UserData> UpdateAvatar(string avatarId, CancellationToken ct = default)
+    public async UniTask<TUser> UpdateAvatar(string avatarId, CancellationToken ct = default)
     {
         var result = await _userApiService.UpdateAvatarAsync(avatarId, ct);
         if (result.IsSuccess)
@@ -88,7 +88,7 @@ public class UserRepository : IUserRepository
         return result;
     }
 
-    public void UpdateCachedUser(Action<UserData> updateAction)
+    public void UpdateCachedUser(Action<TUser> updateAction)
     {
         if (_cachedUser == null)
             return;

@@ -1,6 +1,10 @@
 ﻿using System;
 using Newtonsoft.Json;
 
+/// <summary>
+/// Fields every project shares. Subclass this in your project to add your own
+/// (mail, balances, etc.) and register the generic services with your subclass.
+/// </summary>
 public class UserData
 {
     [JsonProperty("uid")]
@@ -17,35 +21,4 @@ public class UserData
 
     [JsonProperty("avatarId")]
     public string AvatarId { get; set; }
-
-    [JsonProperty("mail")]
-    public Mail MailData { get; set; }
-
-    [JsonProperty("balance")]
-    public Balance BalanceShop { get; set; }
-
-    [JsonProperty("balanceEarn")]
-    public BalanceEarn BalanceGame { get; set; }
-
-    public class Mail
-    {
-        [JsonProperty("haveUnreadInbox")]
-        public bool HaveUnreadInbox { get; set; }
-
-        [JsonProperty("unreadCount")]
-        public int UnreadCount { get; set; }
-    }
-
-    public class Balance
-    {
-        [JsonProperty("currentBalance")]
-        public double CurrentBalance { get; set; }
-    }
-
-    public class BalanceEarn
-    {
-        [JsonProperty("currentBalance")]
-        public double CurrentBalance { get; set; }
-    }
 }
-

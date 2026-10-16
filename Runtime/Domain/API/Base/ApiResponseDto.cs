@@ -62,16 +62,4 @@ public class MetaData
     public int Limit { get; set; }
 }
 
-public class Balance
-{
-    [JsonProperty("currentBalance")]
-    public double CurrentBalance { get; set; }
-}
-
-public class BalanceEarn
-{
-    [JsonProperty("currentBalance")]
-    public double CurrentBalance { get; set; }
-}
-
 #endregion
