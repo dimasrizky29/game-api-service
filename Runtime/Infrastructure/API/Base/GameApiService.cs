@@ -17,22 +17,31 @@ using VContainer;
 public class GameApiService : BaseApiService, IGameApiService
 {
     private const int DefaultTimeout = 30;
-    private bool _isRefreshing = false;
+
+    /// <summary>Network-error resends allowed after the first attempt (user is prompted before each).</summary>
+    public const int MaxNetworkRetries = 3;
+
+    private enum RefreshOutcome { Succeeded, Failed, NetworkError }
+
+    // Non-null while a token refresh is in flight; every concurrent caller awaits the same outcome.
+    private UniTaskCompletionSource<RefreshOutcome> _refresh;
 
     // Dependencies (Inject lewat Constructor)
     private readonly IHttpClient _httpClient;
     private readonly IAuthStore _authStore;
     private readonly IApiConfig _config;
     private readonly IApiErrorHandler _apiErrorHandler;
+    private readonly ApiEndpoints _endpoints;
 
     [Inject]
-    public GameApiService(IHttpClient httpClient,IAuthStore authStore,
-            IApiConfig config, IApiErrorHandler apiErrorHandler) : base()
+    public GameApiService(IHttpClient httpClient, IAuthStore authStore,
+            IApiConfig config, IApiErrorHandler apiErrorHandler, ApiEndpoints endpoints) : base()
     {
         _httpClient = httpClient;
         _authStore = authStore;
         _config = config;
         _apiErrorHandler = apiErrorHandler;
+        _endpoints = endpoints;
     }
 
     #region Public Methods
@@ -70,130 +79,141 @@ public class GameApiService : BaseApiService, IGameApiService
     }
 
     /// <summary>
-    /// DELETE Request.
+    /// DELETE Request. True only when the call succeeded (an empty 2xx body counts as success).
     /// </summary>
     public async UniTask<bool> DeleteAsync(string url, CancellationToken ct = default)
     {
         var result = await SendRequestWithInterceptAsync<string>(() => UnityWebRequest.Delete(url), ct);
-        // For DELETE, we consider it successful if we got a response (even if empty)
-        // The interceptor already handles errors, so if we get here with a non-null result, it succeeded
-        return result != null;
+        return result.IsSuccess;
     }
-
 
     #endregion
 
     #region Core Logic
     /// <summary>
-    /// Request handler with interceptor for token refresh.
-    /// Takes a factory function to create the request, allowing retry after token refresh.
+    /// Request handler with interceptor for token refresh and a bounded network-retry loop.
+    /// Takes a factory function to create the request, allowing resend after refresh or retry.
     /// </summary>
     private async UniTask<ApiResponseDto<T>> SendRequestWithInterceptAsync<T>(
         Func<UnityWebRequest> requestFactory, CancellationToken ct)
     {
-        // 1. Wait if a refresh is already in progress (prevents request storms)
-        if (_isRefreshing)
-            await UniTask.WaitUntil(() => !_isRefreshing, cancellationToken: ct);
-
-        using var request = requestFactory();
-        SetupRequestHeaders(request);
-
         try
         {
-            LoggerService.LogDebug($"[API] Sending Request: {request.method} {request.url} ");
-
-            // Send the request and wait for it to finish using UniTask BaseHttpClient
-            string json = await _httpClient.SendAsync(request, ct);
-            int responseCode = (int)request.responseCode;
-
-            LoggerService.LogDebug($"[API] Response ({responseCode}): {json}");
-
-            // Parsing & Enrichment
-            var result = JsonConvert.DeserializeObject<ApiResponseDto<T>>(json) ?? new ApiResponseDto<T>();
-            result.Code = responseCode;
-
-            // --- HANDLE ACCESS TOKEN EXPIRED ---
-            if (_authStore.IsLoggedIn && IsAccessTokenExpired(request))
+            for (int attempt = 0; ; attempt++)
             {
-                bool refreshed = await HandleTokenRefresh(ct);
-                if (refreshed)
+                try
                 {
-                    // Recursive retry: The token is now updated, try again with fresh request
-                    using var retryRequest = requestFactory();
-                    SetupRequestHeaders(retryRequest);
-
-                    string retryJson = await _httpClient.SendAsync(retryRequest, ct);
-                    var retryResult = JsonConvert.DeserializeObject<ApiResponseDto<T>>(retryJson) ?? new ApiResponseDto<T>();
-                    retryResult.Code = (int)retryRequest.responseCode;
-
-                    // Check for permanent expiration on retry
-                    if (IsSessionPermanentlyExpired(retryRequest) || IsAccessTokenExpired(retryRequest))
-                    {
-                        LoggerService.Warning("[API] Session invalid after retry. Logging out.");
-                        _authStore.ClearSession();
-                        retryResult.SetHandledByGlobalUI(true); // Tandai agar Presenter diam
-                        return retryResult;
-                    }
-
-                    // Cek Global Error pada hasil retry (Maintenance dll)
-                    if (retryResult.IsGlobalError)
-                    {
-                        HandleInternalApiErrors(retryResult.Code);
-                        retryResult.SetHandledByGlobalUI(true);
-                    }
-
-                    return retryResult;
+                    return await SendOnceAsync<T>(requestFactory, ct);
                 }
+                catch (NetworkException)
+                {
+                    LoggerService.Warning("[API] Network connection lost.");
 
+                    // Out of retries, or user chose not to retry: give up with a handled error.
+                    if (attempt >= MaxNetworkRetries || !await _apiErrorHandler.ShowNetworkErrorPromptAsync())
+                        return ApiResponseDto<T>.CreateError("NETWORK_ERROR", 0, true);
+
+                    LoggerService.LogDebug("[API] User chose to retry. Resending request...");
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Jika request dibatalkan secara sengaja (misal pindah scene)
+            return ApiResponseDto<T>.CreateError("Canceled", 0, true);
+        }
+        catch (Exception ex)
+        {
+            LoggerService.Exception(ex, "[API] Unexpected exception");
+            // Kembalikan DTO error agar Presenter tidak crash & tahu UI sudah dihandle
+            return ApiResponseDto<T>.CreateError(ex.Message, 0, true);
+        }
+    }
+
+    /// <summary>One send, with token refresh + resend when the access token has expired.</summary>
+    /// <exception cref="NetworkException">No response received (also from the refresh call).</exception>
+    private async UniTask<ApiResponseDto<T>> SendOnceAsync<T>(Func<UnityWebRequest> requestFactory, CancellationToken ct)
+    {
+        // A refresh is in flight: wait so we send with the fresh token (prevents request storms).
+        if (_refresh != null)
+        {
+            var pending = await _refresh.Task.AttachExternalCancellation(ct);
+            if (pending == RefreshOutcome.Failed)
+                return ApiResponseDto<T>.CreateError("Session expired", 401, true);
+        }
+
+        var (response, result) = await SendParsedAsync<T>(requestFactory, ct);
+
+        // --- HANDLE ACCESS TOKEN EXPIRED ---
+        if (_authStore.IsLoggedIn && IsAccessTokenExpired(response))
+        {
+            if (!await RefreshTokenAsync(ct))
+            {
                 result.SetHandledByGlobalUI(true);
                 return result;
             }
 
-            // --- HANDLE GLOBAL UI (Maintenance / Force Update / Server Error) ---
-            if (result.IsGlobalError)
+            // Token is now updated: resend with a fresh request
+            var (retryResponse, retryResult) = await SendParsedAsync<T>(requestFactory, ct);
+
+            // Check for permanent expiration on retry
+            if (IsSessionPermanentlyExpired(retryResponse) || IsAccessTokenExpired(retryResponse))
             {
-                HandleInternalApiErrors(result.Code);
-                result.SetHandledByGlobalUI(true);
-            }
-            else if (request.result == UnityWebRequest.Result.ProtocolError)
-            {
-                // Logging untuk error non-global (400 Bad Request, dll)
-                LoggerService.Warning($"[API] Protocol Error ({result.Code}): {json}");
+                LoggerService.Warning("[API] Session invalid after retry. Logging out.");
+                _authStore.ClearSession();
+                retryResult.SetHandledByGlobalUI(true); // Tandai agar Presenter diam
+                return retryResult;
             }
 
-            return result;
+            return HandleGlobalErrors(retryResult, retryResponse);
         }
-        catch (Exception ex)
+
+        return HandleGlobalErrors(result, response);
+    }
+
+    private async UniTask<(HttpResponse response, ApiResponseDto<T> result)> SendParsedAsync<T>(
+        Func<UnityWebRequest> requestFactory, CancellationToken ct)
+    {
+        using var request = requestFactory();
+        SetupRequestHeaders(request);
+
+        LoggerService.LogDebug($"[API] Sending Request: {request.method} {request.url}");
+        var response = await _httpClient.SendAsync(request, ct);
+        LoggerService.LogDebug($"[API] Response ({response.Code}): {response.Body}");
+
+        return (response, Parse<T>(response));
+    }
+
+    /// <summary>Body is optional/untrusted (HTML error pages, empty): the HTTP code is always kept.</summary>
+    private static ApiResponseDto<T> Parse<T>(HttpResponse response)
+    {
+        ApiResponseDto<T> dto = null;
+        if (!string.IsNullOrWhiteSpace(response.Body))
         {
-            if (ex is OperationCanceledException)
-            {
-                // Jika request dibatalkan secara sengaja (misal pindah scene)
-                return ApiResponseDto<T>.CreateError("Canceled", 0, true);
-            }
-            LoggerService.Exception(ex, $"[API] Exception to {request.url}");
-
-            /// Cek apakah ini murni masalah koneksi (network Error / Timeout)
-            if (IsNetworkError(ex))
-            {
-                LoggerService.Warning("[BaseApi] Network connection lost. Prompting user...");
-
-                // 1. Munculkan UI dan "Pause" eksekusi di sini sampai user bereaksi
-                bool shouldRetry = await _apiErrorHandler.ShowNetworkErrorPromptAsync();
-
-                if (shouldRetry)
-                {
-                    LoggerService.LogDebug("[BaseApi] User clicked Reload. Retrying request...");
-
-                    // 2. THE MAGIC: REKURSIF!
-                    // Kita panggil ulang fungsi ini sendiri dari awal. 
-                    // Jika sukses, hasilnya akan langsung diteruskan ke Presenter pemanggil!
-                    return await SendRequestWithInterceptAsync<T>(requestFactory, ct);
-                }
-            }
-
-            // Kembalikan DTO error agar Presenter tidak crash & tahu UI sudah dihandle
-            return ApiResponseDto<T>.CreateError(ex.Message, 0, true);
+            try { dto = JsonConvert.DeserializeObject<ApiResponseDto<T>>(response.Body); }
+            catch (JsonException) { /* not our JSON envelope: fall through to the empty DTO */ }
         }
+
+        dto ??= new ApiResponseDto<T>();
+        dto.Code = (int)response.Code;
+        return dto;
+    }
+
+    // --- HANDLE GLOBAL UI (Maintenance / Force Update / Server Error) ---
+    private ApiResponseDto<T> HandleGlobalErrors<T>(ApiResponseDto<T> result, HttpResponse response)
+    {
+        if (result.IsGlobalError)
+        {
+            HandleInternalApiErrors(result.Code);
+            result.SetHandledByGlobalUI(true);
+        }
+        else if (response.Code >= 400)
+        {
+            // Logging untuk error non-global (400 Bad Request, dll)
+            LoggerService.Warning($"[API] Protocol Error ({result.Code}): {response.Body}");
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -214,76 +234,86 @@ public class GameApiService : BaseApiService, IGameApiService
     #region Helpers & Token Logic
 
     /// <summary>
-    /// Handles token refresh when access token expires.
-    /// Uses a direct request to avoid infinite recursion with the interceptor.
+    /// Single-flight refresh: the first caller runs it, concurrent callers await the same outcome.
+    /// Returns true when the new access token is stored.
     /// </summary>
-    private async UniTask<bool> HandleTokenRefresh(CancellationToken ct)
+    /// <exception cref="NetworkException">No connection during refresh (session is NOT cleared).</exception>
+    private async UniTask<bool> RefreshTokenAsync(CancellationToken ct)
     {
-        if (_isRefreshing) return true; // Already handled by the WaitUntil above
-        _isRefreshing = true;
+        if (_refresh != null)
+            return Unwrap(await _refresh.Task.AttachExternalCancellation(ct));
 
+        var tcs = _refresh = new UniTaskCompletionSource<RefreshOutcome>();
+        var outcome = RefreshOutcome.Failed;
+        try
+        {
+            outcome = await ExecuteRefreshAsync();
+        }
+        catch (NetworkException)
+        {
+            outcome = RefreshOutcome.NetworkError;
+        }
+        finally
+        {
+            _refresh = null;
+            tcs.TrySetResult(outcome);
+        }
+
+        return Unwrap(outcome);
+    }
+
+    private static bool Unwrap(RefreshOutcome outcome)
+    {
+        if (outcome == RefreshOutcome.NetworkError) throw new NetworkException("NETWORK_ERROR");
+        return outcome == RefreshOutcome.Succeeded;
+    }
+
+    /// <summary>
+    /// Direct request that bypasses the interceptor (avoids infinite recursion).
+    /// Not tied to any caller's CancellationToken: it finishes for all waiting callers.
+    /// </summary>
+    private async UniTask<RefreshOutcome> ExecuteRefreshAsync()
+    {
         try
         {
             LoggerService.LogDebug("[API] Access token expired. Attempting refresh...");
 
-            if (!_authStore.IsLoggedIn || string.IsNullOrEmpty(_authStore.Session.RefreshToken))
+            string refreshToken = _authStore.Session.RefreshToken;
+            if (!_authStore.IsLoggedIn || string.IsNullOrEmpty(refreshToken))
             {
                 LoggerService.Warning("[API] No refresh token available. Clearing session.");
                 _authStore.ClearSession();
-                return false;
+                return RefreshOutcome.Failed;
             }
 
-            string refreshUrl = $"{_config.API_BASE_URL}/refresh";
-            var refreshData = new { refreshToken = _authStore.Session.RefreshToken };
-
-            // Use direct request to bypass interceptor and avoid infinite recursion
-            using var req = new UnityWebRequest(refreshUrl, UnityWebRequest.kHttpVerbPOST);
-            SetupJsonBody(req, refreshData);
-
-            // Set headers for refresh token
+            using var req = new UnityWebRequest($"{_config.API_BASE_URL}{_endpoints.Refresh}", UnityWebRequest.kHttpVerbPOST);
+            SetupJsonBody(req, new { refreshToken });
             SetupRequestHeaders(req);
 
-            req.timeout = DefaultTimeout;
+            var response = await _httpClient.SendAsync(req, CancellationToken.None);
+            var dto = Parse<RefreshTokenDto>(response);
 
-            string json = await _httpClient.SendAsync(req, ct);
-
-            if (req.result == UnityWebRequest.Result.Success)
+            if (response.Code >= 200 && response.Code < 300 && dto.IsSuccess &&
+                !string.IsNullOrEmpty(dto.Data?.AccessToken))
             {
-                var response = JsonConvert.DeserializeObject<ApiResponseDto<RefreshTokenDto>>(json);
-
-                // Check if refresh token itself expired (440 or "Token expired.")
-                if (IsSessionPermanentlyExpired(req) ||
-                    (!string.IsNullOrEmpty(response?.Status) && response.Status == "error") ||
-                    (req?.responseCode == 401))
-                {
-                    LoggerService.Warning($"[API] Refresh token invalid/expired (Code: {req.responseCode}). Logging out.");
-                    _authStore.ClearSession();
-                    return false;
-                }
-
-                if (response != null && response.IsSuccess && !string.IsNullOrEmpty(response.Data.AccessToken))
-                {
-                    _authStore.SetSession(response.Data.AccessToken, _authStore.Session.RefreshToken);
-                    LoggerService.LogDebug("[API] Token refresh successful.");
-                    return true;
-                }
+                _authStore.SetSession(dto.Data.AccessToken, refreshToken);
+                LoggerService.LogDebug("[API] Token refresh successful.");
+                return RefreshOutcome.Succeeded;
             }
-            else
-            {
-                LoggerService.Error($"[API] Token refresh failed: {req.error} (Status: {req.responseCode})");
-            }
+
+            LoggerService.Warning($"[API] Refresh token invalid/expired (Code: {response.Code}). Logging out.");
+        }
+        catch (NetworkException)
+        {
+            throw; // connectivity problem, not an invalid session
         }
         catch (Exception e)
         {
             LoggerService.Exception(e, "Exception during token refresh");
         }
-        finally
-        {
-            _isRefreshing = false;
-        }
 
-        _authStore.ClearSession(); // Refresh failed
-        return false;
+        _authStore.ClearSession();
+        return RefreshOutcome.Failed;
     }
 
     /// <summary>
@@ -304,7 +334,7 @@ public class GameApiService : BaseApiService, IGameApiService
             string accessToken = _authStore.Session.AccessToken;
             if (!string.IsNullOrEmpty(accessToken))
                 request.SetRequestHeader("x-access-token", accessToken);
-            
+
             string refreshToken = _authStore.Session.RefreshToken;
             if (!string.IsNullOrEmpty(refreshToken))
                 request.SetRequestHeader("x-refresh-token", refreshToken);
@@ -369,22 +399,18 @@ public class GameApiService : BaseApiService, IGameApiService
     }
 
     // --- Helper Methods for Performance ---
-    private bool IsAccessTokenExpired(UnityWebRequest req)
+    private static bool IsAccessTokenExpired(HttpResponse response)
     {
         // Triggered by specific backend message or standard 401
-        if (req.responseCode == 401) return true;
-
-        string responseText = req.downloadHandler?.text ?? string.Empty;
-        return responseText.Contains("Access token expired.");
+        if (response.Code == 401) return true;
+        return (response.Body ?? string.Empty).Contains("Access token expired.");
     }
 
-    private bool IsSessionPermanentlyExpired(UnityWebRequest req)
+    private static bool IsSessionPermanentlyExpired(HttpResponse response)
     {
         // Specific 440 code or "Token expired." message
-        if (req.responseCode == 440) return true;
-
-        string responseText = req.downloadHandler?.text ?? string.Empty;
-        return responseText.Contains("Token expired.");
+        if (response.Code == 440) return true;
+        return (response.Body ?? string.Empty).Contains("Token expired.");
     }
 
     #endregion
