@@ -181,6 +181,89 @@ namespace Game.Tests.EditMode.Infrastructure
         }
 
         [Test]
+        public async Task Http200HtmlBody_IsNotSuccess()
+        {
+            _route = _ => Reply(200, "<html>Sign in to Wi-Fi</html>");
+
+            var result = await _svc.GetAsync<TestUser>(DataUrl);
+
+            Assert.IsFalse(result.IsSuccess);
+            Assert.AreEqual("Invalid server response", result.ErrorMessage);
+            Assert.AreEqual(200, result.Code);
+        }
+
+        [Test]
+        public async Task Http200EnvelopeWithMismatchedData_KeepsBackendError()
+        {
+            _route = _ => Reply(200, "{\"status\":\"error\",\"message\":\"Insufficient balance\",\"data\":[]}");
+
+            var result = await _svc.GetAsync<TestUser>(DataUrl);
+
+            Assert.IsFalse(result.IsSuccess);
+            Assert.AreEqual("Insufficient balance", result.ErrorMessage);
+        }
+
+        [Test]
+        public async Task Http200SuccessEnvelopeWithMismatchedData_IsNotSuccess()
+        {
+            _route = _ => Reply(200, "{\"status\":\"success\",\"data\":[]}");
+
+            var result = await _svc.GetAsync<TestUser>(DataUrl);
+
+            Assert.IsFalse(result.IsSuccess);
+            Assert.AreEqual("Invalid server response", result.ErrorMessage);
+        }
+
+        [Test]
+        public async Task Refresh503_DoesNotClearSession_ShowsMaintenance()
+        {
+            RouteDataBehindRefresh(() => Reply(503, ""));
+
+            var result = await _svc.GetAsync<object>(DataUrl);
+
+            _auth.DidNotReceive().ClearSession();
+            _errors.Received(1).ShowMaintenance();
+            Assert.IsTrue(result.HandledByGlobalUI);
+            Assert.IsFalse(result.IsSuccess);
+        }
+
+        [Test]
+        public async Task RefreshFinishingAfterLogout_DoesNotRestoreSession()
+        {
+            var gate = new UniTaskCompletionSource<HttpResponse>();
+            RouteDataBehindRefresh(() => gate.Task);
+
+            var call = _svc.GetAsync<object>(DataUrl);
+            _auth.IsLoggedIn.Returns(false); // user logged out while the refresh was in flight
+            gate.TrySetResult(new HttpResponse(200, RefreshOkJson));
+
+            var result = await call;
+            _auth.DidNotReceive().SetSession(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<int>());
+            _auth.DidNotReceive().ClearSession();
+            Assert.IsTrue(result.HandledByGlobalUI);
+        }
+
+        [Test]
+        public async Task ConcurrentNetworkFailures_PromptOnce_AllCallersResume()
+        {
+            var promptGate = new UniTaskCompletionSource<bool>();
+            _errors.ShowNetworkErrorPromptAsync().Returns(promptGate.Task);
+            bool online = false;
+            _route = _ => online
+                ? Reply(200, "{\"status\":\"success\"}")
+                : throw new NetworkException("NETWORK_ERROR");
+
+            var a = _svc.GetAsync<object>(DataUrl);
+            var b = _svc.GetAsync<object>(DataUrl);
+            online = true;
+            promptGate.TrySetResult(true);
+
+            Assert.IsTrue((await a).IsSuccess);
+            Assert.IsTrue((await b).IsSuccess);
+            await _errors.Received(1).ShowNetworkErrorPromptAsync();
+        }
+
+        [Test]
         public async Task Http200BodyError_IsNotSuccess_NoGlobalPopup()
         {
             _route = _ => Reply(200, "{\"status\":\"error\",\"message\":\"Insufficient balance\"}");

@@ -6,6 +6,7 @@ using Domain.Api.Base;
 using Domain.Api.Interfaces;
 using Infrastructure.Networking;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEngine;
 using UnityEngine.Networking;
 using VContainer;
@@ -21,10 +22,16 @@ public class GameApiService : BaseApiService, IGameApiService
     /// <summary>Network-error resends allowed after the first attempt (user is prompted before each).</summary>
     public const int MaxNetworkRetries = 3;
 
-    private enum RefreshOutcome { Succeeded, Failed, NetworkError }
+    private const string InvalidResponseMessage = "Invalid server response";
+
+    // Failed = the session is gone (cleared or superseded); ServerError = server/portal problem, session kept.
+    private enum RefreshOutcome { Succeeded, Failed, ServerError, NetworkError }
 
     // Non-null while a token refresh is in flight; every concurrent caller awaits the same outcome.
     private UniTaskCompletionSource<RefreshOutcome> _refresh;
+
+    // Non-null while the "no connection" prompt is showing; concurrent failures share one prompt.
+    private UniTaskCompletionSource<bool> _networkPrompt;
 
     // Dependencies (Inject lewat Constructor)
     private readonly IHttpClient _httpClient;
@@ -110,7 +117,7 @@ public class GameApiService : BaseApiService, IGameApiService
                     LoggerService.Warning("[API] Network connection lost.");
 
                     // Out of retries, or user chose not to retry: give up with a handled error.
-                    if (attempt >= MaxNetworkRetries || !await _apiErrorHandler.ShowNetworkErrorPromptAsync())
+                    if (attempt >= MaxNetworkRetries || !await PromptNetworkRetryAsync())
                         return ApiResponseDto<T>.CreateError("NETWORK_ERROR", 0, true);
 
                     LoggerService.LogDebug("[API] User chose to retry. Resending request...");
@@ -130,6 +137,26 @@ public class GameApiService : BaseApiService, IGameApiService
         }
     }
 
+    /// <summary>Shows the retry prompt once; callers failing while it is open await the same answer.</summary>
+    private async UniTask<bool> PromptNetworkRetryAsync()
+    {
+        if (_networkPrompt != null) return await _networkPrompt.Task;
+
+        var tcs = _networkPrompt = new UniTaskCompletionSource<bool>();
+        bool retry = false;
+        try
+        {
+            retry = await _apiErrorHandler.ShowNetworkErrorPromptAsync();
+        }
+        finally
+        {
+            _networkPrompt = null;
+            tcs.TrySetResult(retry);
+        }
+
+        return retry;
+    }
+
     /// <summary>One send, with token refresh + resend when the access token has expired.</summary>
     /// <exception cref="NetworkException">No response received (also from the refresh call).</exception>
     private async UniTask<ApiResponseDto<T>> SendOnceAsync<T>(Func<UnityWebRequest> requestFactory, CancellationToken ct)
@@ -140,6 +167,8 @@ public class GameApiService : BaseApiService, IGameApiService
             var pending = await _refresh.Task.AttachExternalCancellation(ct);
             if (pending == RefreshOutcome.Failed)
                 return ApiResponseDto<T>.CreateError("Session expired", 401, true);
+            if (pending == RefreshOutcome.ServerError)
+                return ApiResponseDto<T>.CreateError("Server unavailable", 503, true);
         }
 
         var (response, result) = await SendParsedAsync<T>(requestFactory, ct);
@@ -184,19 +213,46 @@ public class GameApiService : BaseApiService, IGameApiService
         return (response, Parse<T>(response));
     }
 
-    /// <summary>Body is optional/untrusted (HTML error pages, empty): the HTTP code is always kept.</summary>
+    /// <summary>
+    /// Body is optional/untrusted (HTML error pages, empty): the HTTP code is always kept.
+    /// An empty body is fine; a non-empty body that is not a usable envelope becomes an error.
+    /// </summary>
     private static ApiResponseDto<T> Parse<T>(HttpResponse response)
     {
         ApiResponseDto<T> dto = null;
         if (!string.IsNullOrWhiteSpace(response.Body))
         {
             try { dto = JsonConvert.DeserializeObject<ApiResponseDto<T>>(response.Body); }
-            catch (JsonException) { /* not our JSON envelope: fall through to the empty DTO */ }
+            catch (JsonException) { dto = Recover<T>(response.Body); }
         }
 
         dto ??= new ApiResponseDto<T>();
         dto.Code = (int)response.Code;
         return dto;
+    }
+
+    /// <summary>
+    /// Body did not fit the envelope for T (HTML page, or `data` of another shape).
+    /// Keep the backend's own error status/message when the envelope is readable; never report success.
+    /// </summary>
+    private static ApiResponseDto<T> Recover<T>(string body)
+    {
+        string status = null, message = null;
+        try
+        {
+            var envelope = JsonConvert.DeserializeObject<ApiResponseDto<JToken>>(body);
+            status = envelope?.Status;
+            message = envelope?.Message;
+        }
+        catch (JsonException) { /* not JSON at all */ }
+
+        bool backendError = !string.IsNullOrEmpty(status) &&
+                            !string.Equals(status, "success", StringComparison.OrdinalIgnoreCase);
+        return new ApiResponseDto<T>
+        {
+            Status = backendError ? status : "error",
+            Message = backendError && !string.IsNullOrEmpty(message) ? message : InvalidResponseMessage
+        };
     }
 
     // --- HANDLE GLOBAL UI (Maintenance / Force Update / Server Error) ---
@@ -296,12 +352,34 @@ public class GameApiService : BaseApiService, IGameApiService
             if (response.Code >= 200 && response.Code < 300 && dto.IsSuccess &&
                 !string.IsNullOrEmpty(dto.Data?.AccessToken))
             {
+                // Logout / account switch while the request was in flight: never resurrect the old session.
+                if (!_authStore.IsLoggedIn || _authStore.Session.RefreshToken != refreshToken)
+                {
+                    LoggerService.Warning("[API] Session changed during token refresh. Discarding the new token.");
+                    return RefreshOutcome.Failed;
+                }
+
                 _authStore.SetSession(dto.Data.AccessToken, refreshToken);
                 LoggerService.LogDebug("[API] Token refresh successful.");
                 return RefreshOutcome.Succeeded;
             }
 
-            LoggerService.Warning($"[API] Refresh token invalid/expired (Code: {response.Code}). Logging out.");
+            // Only a rejected refresh token ends the session. Server trouble (5xx, 426, captive
+            // portal, unreadable body) keeps it so the user is not logged out by a deploy.
+            bool rejected = response.Code is 400 or 401 or 403 or 440 ||
+                            IsSessionPermanentlyExpired(response) ||
+                            (response.Code >= 200 && response.Code < 300 && !dto.IsSuccess &&
+                             dto.Message != InvalidResponseMessage);
+            if (rejected)
+            {
+                LoggerService.Warning($"[API] Refresh token invalid/expired (Code: {response.Code}). Logging out.");
+                _authStore.ClearSession();
+                return RefreshOutcome.Failed;
+            }
+
+            LoggerService.Warning($"[API] Token refresh failed, session kept (Code: {response.Code}).");
+            if (dto.IsGlobalError) HandleInternalApiErrors(dto.Code);
+            return RefreshOutcome.ServerError;
         }
         catch (NetworkException)
         {
@@ -310,10 +388,8 @@ public class GameApiService : BaseApiService, IGameApiService
         catch (Exception e)
         {
             LoggerService.Exception(e, "Exception during token refresh");
+            return RefreshOutcome.ServerError;
         }
-
-        _authStore.ClearSession();
-        return RefreshOutcome.Failed;
     }
 
     /// <summary>

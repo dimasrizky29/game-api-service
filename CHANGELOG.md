@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - A network failure during token refresh no longer logs the user out; it goes through the normal network-retry prompt.
 - Network retry is capped at `GameApiService.MaxNetworkRetries` (3) resends instead of recursing without limit.
 - Non-JSON error bodies (e.g. a 502 HTML page) keep their HTTP code, so the maintenance/force-update/server-error popups still show.
+- A non-empty body that is not a usable envelope (captive-portal HTML on a 2xx, or `data` of the wrong shape) is an error (`"Invalid server response"`), never a success with null data. A readable `status`/`message` from the backend is kept.
+- Token refresh only ends the session when the refresh token is rejected (400/401/403/440 or an explicit error status). 5xx, 426 and unreadable replies keep the session and show the matching global popup instead of logging the user out.
+- A refresh that completes after logout or an account switch no longer restores the old session.
+- Concurrent callers that hit a network error share one retry prompt; all of them resume after the answer.
 - Tokens, passwords and OAuth tokens are redacted from API logs (`LogRedactor`).
 - `AuthStore` clears and persists state before raising `OnSessionChanged`, so listeners see the new state.
 
