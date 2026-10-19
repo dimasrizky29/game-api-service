@@ -177,9 +177,9 @@ public class GameApiService : BaseApiService, IGameApiService
         using var request = requestFactory();
         SetupRequestHeaders(request);
 
-        LoggerService.LogDebug($"[API] Sending Request: {request.method} {request.url}");
+        LoggerService.LogDebug($"[API] Sending Request: {request.method} {LogRedactor.Redact(request.url)}");
         var response = await _httpClient.SendAsync(request, ct);
-        LoggerService.LogDebug($"[API] Response ({response.Code}): {response.Body}");
+        LoggerService.LogDebug($"[API] Response ({response.Code}): {LogRedactor.Redact(response.Body)}");
 
         return (response, Parse<T>(response));
     }
@@ -210,7 +210,7 @@ public class GameApiService : BaseApiService, IGameApiService
         else if (response.Code >= 400)
         {
             // Logging untuk error non-global (400 Bad Request, dll)
-            LoggerService.Warning($"[API] Protocol Error ({result.Code}): {response.Body}");
+            LoggerService.Warning($"[API] Protocol Error ({result.Code}): {LogRedactor.Redact(response.Body)}");
         }
 
         return result;
@@ -392,7 +392,7 @@ public class GameApiService : BaseApiService, IGameApiService
 
         // Log JSON string for debugging, be careful not to log sensitive tokens
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-        LoggerService.LogDebug($"[API] Request Body JSON: {json}");
+        LoggerService.LogDebug($"[API] Request Body JSON: {LogRedactor.Redact(json)}");
 #endif
         req.uploadHandler = new UploadHandlerRaw(body) { contentType = "application/json" };
         req.downloadHandler = new DownloadHandlerBuffer();
