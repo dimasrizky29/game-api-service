@@ -29,7 +29,7 @@ public class MyUserData : UserData
 
 public static class ExampleUserRegistration
 {
-    // Call from your LifetimeScope.Configure(builder), after IGameApiService and IApiConfig are registered.
+    // Call from your LifetimeScope.Configure(builder), after IGameApiService, IApiConfig and ApiEndpoints are registered.
     public static void Register(IContainerBuilder builder)
     {
         builder.Register<IUserApiService<MyUserData>, UserApiService<MyUserData>>(Lifetime.Singleton);

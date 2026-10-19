@@ -45,7 +45,10 @@ public override void Configure(IContainerBuilder builder)
     // 3. Register your UI Error handler (The Bridge)
     builder.Register<IApiErrorHandler, GlobalUIPresenter>(Lifetime.Singleton);
 
-    // 4. Finally, Register the Package's core services
+    // 4a. Endpoint paths (defaults shown; override any, e.g. Refresh = "/refresh")
+    builder.RegisterInstance(new ApiEndpoints());
+
+    // 4b. Finally, Register the Package's core services
     builder.Register<IHttpClient, BaseHttpClient>(Lifetime.Singleton);
     builder.Register<IGameApiService, GameApiService>(Lifetime.Singleton);
     builder.Register<IAuthApiService, AuthApiService>(Lifetime.Singleton);

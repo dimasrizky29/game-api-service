@@ -23,7 +23,19 @@ namespace Game.Tests.EditMode.Infrastructure
             _mockApiConfig.API_SALT_PASSWORD.Returns("testsalt");
 
             // Instantiate service injecting mocks
-            _authApiService = new AuthApiService(_mockGameApiService, _mockApiConfig);
+            _authApiService = new AuthApiService(_mockGameApiService, _mockApiConfig, new ApiEndpoints());
+        }
+
+        [Test]
+        public async Task Endpoints_AreOverridable()
+        {
+            var endpoints = new ApiEndpoints { Refresh = "/v2/token/refresh" };
+            var svc = new AuthApiService(_mockGameApiService, _mockApiConfig, endpoints);
+
+            await svc.RefreshTokenAsync("rt", default);
+
+            await _mockGameApiService.Received(1)
+                .PostAsync<RefreshTokenDto>("https://mock-api.com/api/v2/token/refresh", Arg.Any<object>(), default);
         }
 
         [Test]

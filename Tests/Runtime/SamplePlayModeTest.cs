@@ -24,7 +24,7 @@ namespace Game.Tests.PlayMode
             _mockApiConfig.API_BASE_URL.Returns("https://fake-api.com");
             _mockApiConfig.API_SALT_PASSWORD.Returns("salt");
 
-            _authService = new AuthApiService(_mockGameApiService, _mockApiConfig);
+            _authService = new AuthApiService(_mockGameApiService, _mockApiConfig, new ApiEndpoints());
         }
 
         // [UnityTest] is exactly what you need to test GameObjects or components over time.

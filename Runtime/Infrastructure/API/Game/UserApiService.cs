@@ -11,12 +11,14 @@ public class UserApiService<TUser> : IUserApiService<TUser> where TUser : UserDa
     // Dependencies (Inject lewat Constructor)
     private readonly IGameApiService _apiService;
     private readonly IApiConfig _config;
+    private readonly ApiEndpoints _endpoints;
 
     // VContainer akan otomatis mengisi ini
-    public UserApiService(IGameApiService apiService, IApiConfig config)
+    public UserApiService(IGameApiService apiService, IApiConfig config, ApiEndpoints endpoints)
     {
         _apiService = apiService;
         _config = config;
+        _endpoints = endpoints;
     }
 
     /// <summary>
@@ -27,7 +29,7 @@ public class UserApiService<TUser> : IUserApiService<TUser> where TUser : UserDa
     public async UniTask<ApiResponseDto<TUser>> GetUserAsync(
         CancellationToken ct = default)
     {
-        string url = $"{_config.API_BASE_URL}/users";
+        string url = $"{_config.API_BASE_URL}{_endpoints.User}";
         return await _apiService.GetAsync<TUser>(url, ct);
     }
 
@@ -36,7 +38,7 @@ public class UserApiService<TUser> : IUserApiService<TUser> where TUser : UserDa
         CancellationToken ct = default)
     {
         var data = new { username };
-        string url = $"{_config.API_BASE_URL}/users/username";
+        string url = $"{_config.API_BASE_URL}{_endpoints.Username}";
         return await _apiService.PostAsync<TUser>(url, data, ct);
     }
 
@@ -45,7 +47,7 @@ public class UserApiService<TUser> : IUserApiService<TUser> where TUser : UserDa
         CancellationToken ct = default)
     {
         var data = new { avatarId };
-        string url = $"{_config.API_BASE_URL}/users/avatar";
+        string url = $"{_config.API_BASE_URL}{_endpoints.Avatar}";
         return await _apiService.PostAsync<TUser>(url, data, ct);
     }
 
@@ -54,7 +56,7 @@ public class UserApiService<TUser> : IUserApiService<TUser> where TUser : UserDa
         CancellationToken ct = default)
     {
         var data = new { reason };
-        string url = $"{_config.API_BASE_URL}/users/deactivate";
+        string url = $"{_config.API_BASE_URL}{_endpoints.Deactivate}";
         return await _apiService.PostAsync<object>(url, data, ct);
     }
 }

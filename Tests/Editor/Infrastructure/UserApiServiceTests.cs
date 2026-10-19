@@ -19,7 +19,7 @@ namespace Game.Tests.EditMode.Infrastructure
             var config = Substitute.For<IApiConfig>();
             config.API_BASE_URL.Returns(BaseUrl);
 
-            _service = new UserApiService<TestUser>(_mockGameApiService, config);
+            _service = new UserApiService<TestUser>(_mockGameApiService, config, new ApiEndpoints());
         }
 
         [Test]

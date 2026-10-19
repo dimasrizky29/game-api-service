@@ -11,12 +11,14 @@ public class AuthApiService : IAuthApiService
     // Dependencies (Inject lewat Constructor)
     private readonly IGameApiService _apiService;
     private readonly IApiConfig _config;
+    private readonly ApiEndpoints _endpoints;
 
     // VContainer akan otomatis mengisi ini
-    public AuthApiService(IGameApiService apiService, IApiConfig config)
+    public AuthApiService(IGameApiService apiService, IApiConfig config, ApiEndpoints endpoints)
     {
         _apiService = apiService;
         _config = config;
+        _endpoints = endpoints;
     }
 
     /// <summary>
@@ -34,7 +36,7 @@ public class AuthApiService : IAuthApiService
     {
         string passwordSalt = password + _config.API_SALT_PASSWORD;
         var loginData = new { email, passwordSalt };
-        string url = $"{_config.API_BASE_URL}/auth/signin/email";
+        string url = $"{_config.API_BASE_URL}{_endpoints.SignInEmail}";
         return await _apiService.PostAsync<SignInDataDto>(url, loginData, ct);
     }
 
@@ -52,7 +54,7 @@ public class AuthApiService : IAuthApiService
         CancellationToken ct = default)
     {
         var registerData = new { email, password, referralCode };
-        string url = $"{_config.API_BASE_URL}/auth/sign-up";
+        string url = $"{_config.API_BASE_URL}{_endpoints.SignUp}";
         return await _apiService.PostAsync<SignUpDataDto>(url, registerData, ct);
     }
 
@@ -69,13 +71,13 @@ public class AuthApiService : IAuthApiService
         CancellationToken ct = default)
     {
         var oauthData = new { OAuthToken = oauth, referrer};
-        string url = $"{_config.API_BASE_URL}/auth/signin/oauth";
+        string url = $"{_config.API_BASE_URL}{_endpoints.SignInOAuth}";
         return await _apiService.PostAsync<SignInDataDto>(url, oauthData, ct);
     }
 
     public async UniTask<ApiResponseDto<object>> SignOutAsync(CancellationToken ct = default)
     {
-        string url = $"{_config.API_BASE_URL}/auth/signout";
+        string url = $"{_config.API_BASE_URL}{_endpoints.SignOut}";
         return await _apiService.PostAsync<object>(url, null, ct);
     }
 
@@ -91,7 +93,7 @@ public class AuthApiService : IAuthApiService
         CancellationToken ct = default)
     {
         var refreshData = new { refreshToken };
-        string url = $"{_config.API_BASE_URL}/auth/refresh";
+        string url = $"{_config.API_BASE_URL}{_endpoints.Refresh}";
         return await _apiService.PostAsync<RefreshTokenDto>(url, refreshData, ct);
     }
 }
