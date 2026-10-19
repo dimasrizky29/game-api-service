@@ -341,8 +341,8 @@ public class GameApiService : BaseApiService, IGameApiService
         }
         else
         {
-            // Fallback to PlayerPrefs if the user is not authenticated
-            string refreshToken = PlayerPrefs.GetString("auth-token");
+            // Fallback to the persisted token if the user is not authenticated (cold start)
+            string refreshToken = _authStore.StoredRefreshToken;
             if (!string.IsNullOrEmpty(refreshToken))
                 request.SetRequestHeader("x-refresh-token", refreshToken);
         }

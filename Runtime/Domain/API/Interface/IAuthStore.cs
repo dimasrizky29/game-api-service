@@ -5,6 +5,10 @@ public interface IAuthStore
     UserSession Session { get; }
 
     bool IsLoggedIn { get; }
+
+    /// <summary>Refresh token persisted on this device ("" when none). Survives app restarts.</summary>
+    string StoredRefreshToken { get; }
+
     event Action<UserSession> OnSessionChanged;
     void SetSession(string accessToken, string refreshToken, int expiresInSeconds = 3600);
     void ClearSession();
