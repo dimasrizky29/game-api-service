@@ -24,7 +24,9 @@ public class ApiResponseDto<T>
     #region Helpers
 
     [JsonIgnore]
-    public bool IsSuccess => !string.IsNullOrEmpty(Status) && Status.ToLower() == "success" || Code == 200;
+    public bool IsSuccess => !string.IsNullOrEmpty(Status)
+        ? string.Equals(Status, "success", System.StringComparison.OrdinalIgnoreCase)
+        : Code >= 200 && Code < 300;
 
     [JsonIgnore]
     public string ErrorMessage => !string.IsNullOrEmpty(Message) ? Message : "An unknown error has occurred.";
