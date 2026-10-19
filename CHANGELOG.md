@@ -4,6 +4,33 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-10-19
+
+### Breaking
+- `IHttpClient.SendAsync` returns `HttpResponse` (code + body) instead of `string`; connection failures throw `NetworkException`.
+- `AuthApiService`, `UserApiService<TUser>` and `GameApiService` constructors take `ApiEndpoints`. Register it: `builder.RegisterInstance(new ApiEndpoints());`.
+- `IAuthStore` gains `StoredRefreshToken`.
+- `DeleteAsync` returns true only when the call succeeded (was true for any non-null result).
+
+### Fixed
+- `ApiResponseDto.IsSuccess` honours the body `status` first; a body with no `status` is success only for 2xx. HTTP 200 with `status: "error"` is no longer success.
+- Token refresh is single-flight and always uses `ApiEndpoints.Refresh` (default `/auth/refresh`; the old `/refresh` is gone). Concurrent callers get the real outcome, and a failed refresh clears the session exactly once.
+- A network failure during token refresh no longer logs the user out; it goes through the normal network-retry prompt.
+- Network retry is capped at `GameApiService.MaxNetworkRetries` (3) resends instead of recursing without limit.
+- Non-JSON error bodies (e.g. a 502 HTML page) keep their HTTP code, so the maintenance/force-update/server-error popups still show.
+- Tokens, passwords and OAuth tokens are redacted from API logs (`LogRedactor`).
+- `AuthStore` clears and persists state before raising `OnSessionChanged`, so listeners see the new state.
+
+### Added
+- `ApiEndpoints`: every endpoint path as an overridable default.
+- `AuthStore.RefreshTokenKey` and `IAuthStore.StoredRefreshToken`: one owner for the persisted refresh token.
+
+### Security note
+- Projects that ever committed `.env.dev` should rotate `API_BEARER` and `API_SALT_PASSWORD`.
+
+### Migration
+- Games that reference this package by git URL without a tag follow `main`: pin them to `#v0.1.2` until they are ready to adopt 0.2.x.
+
 ## [0.2.0] - 2026-10-16
 
 ### Breaking

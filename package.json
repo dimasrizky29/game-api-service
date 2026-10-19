@@ -1,7 +1,7 @@
 {
   "name": "com.yatechstudio.apiservice",
   "displayName": "API Service",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "unity": "6000.3",
   "unityRelease": "7f1",
   "description": "A robust, high-performance, and modular REST API package for Unity projects. Built on top of `UnityWebRequest` and completely integrated with `UniTask` to provide low-allocation asynchronous routines.",
@@ -14,9 +14,8 @@
     "url": "https://github.com/yatech-studio"
   },
   "repository": {
-    "url": "https://github.com/yatech-studio/game-template-yatech.git",
-    "type": "git",
-    "revision": "9aa900d34618e236c4f6389015e0edab2536204a"
+    "url": "https://github.com/yatech-studio/game-api-service.git",
+    "type": "git"
   },
   "samples": [
     {

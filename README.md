@@ -59,6 +59,16 @@ public override void Configure(IContainerBuilder builder)
 }
 ```
 
+### Overriding endpoints
+
+All paths live in `ApiEndpoints` (defaults: `/auth/signin/email`, `/auth/sign-up`, `/auth/signin/oauth`,
+`/auth/signout`, `/auth/refresh`, `/users`, `/users/username`, `/users/avatar`, `/users/deactivate`).
+Backend paths change per game, so override only what differs:
+
+```csharp
+builder.RegisterInstance(new ApiEndpoints { Refresh = "/refresh" });
+```
+
 ## 👤 Project-specific user data
 
 The package only knows `uid`, `gameId`, `username`, `refCode`, `avatarId`. Add your own fields by subclassing, then inject `IUserRepository<MyUserData>`:
@@ -98,4 +108,4 @@ public async UniTaskVoid FetchLeaderboard()
 ```
 
 ## 🧪 Testing
-`NSubstitute`-based EditMode tests cover `ApiConfig`, `AuthApiService`, `UserApiService`, `UserRepository` and `UserData` deserialization. Run via the Unity Test Runner. `BaseHttpClient` (token refresh, global error handling) is not covered yet.
+`NSubstitute`-based EditMode tests cover `ApiConfig`, `AuthApiService`, `UserApiService`, `UserRepository` and `UserData` deserialization, plus `GameApiService` (single-flight token refresh, bounded network retry, global error handling), `ApiResponseDto`, `AuthStore` and `LogRedactor`. Run via the Unity Test Runner.
