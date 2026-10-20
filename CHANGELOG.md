@@ -4,6 +4,11 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-10-20
+
+### Fixed
+- Five `.meta` files were missing from the `v0.2.1` git tag (`docs.meta` and the four test files in `Tests/Editor/Infrastructure`). Unity logs `has no meta file, but it's in an immutable folder` for them when the package is installed from git, which also makes batch test runs exit with an error. Use `v0.2.2` or later instead of `v0.2.1`.
+
 ## [0.2.1] - 2026-10-19
 
 ### Breaking
