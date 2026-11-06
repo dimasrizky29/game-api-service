@@ -2,8 +2,8 @@ using Newtonsoft.Json;
 
 public class ApiResponseDto<T>
 {
-    [JsonProperty("status")]
-    public string Status { get; set; }
+    [JsonProperty("success")]
+    public bool Success { get; set; }
 
     [JsonProperty("message")]
     public string Message { get; set; }
@@ -24,9 +24,7 @@ public class ApiResponseDto<T>
     #region Helpers
 
     [JsonIgnore]
-    public bool IsSuccess => !string.IsNullOrEmpty(Status)
-        ? string.Equals(Status, "success", System.StringComparison.OrdinalIgnoreCase)
-        : Code >= 200 && Code < 300;
+    public bool IsSuccess => Success || (Code >= 200 && Code < 300);
 
     [JsonIgnore]
     public string ErrorMessage => !string.IsNullOrEmpty(Message) ? Message : "An unknown error has occurred.";
@@ -42,7 +40,7 @@ public class ApiResponseDto<T>
     // Method Factory untuk mempermudah pembuatan Error DTO secara internal
     public static ApiResponseDto<T> CreateError(string msg, int code, bool handled) => new()
     {
-        Status = "error",
+        Success = false,
         Message = msg,
         Code = code,
         HandledByGlobalUI = handled

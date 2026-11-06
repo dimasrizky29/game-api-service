@@ -237,20 +237,20 @@ public class GameApiService : BaseApiService, IGameApiService
     /// </summary>
     private static ApiResponseDto<T> Recover<T>(string body)
     {
-        string status = null, message = null;
+        bool status = false;
+        string message = null;
         try
         {
             var envelope = JsonConvert.DeserializeObject<ApiResponseDto<JToken>>(body);
-            status = envelope?.Status;
+            status = envelope.Success;
             message = envelope?.Message;
         }
         catch (JsonException) { /* not JSON at all */ }
 
-        bool backendError = !string.IsNullOrEmpty(status) &&
-                            !string.Equals(status, "success", StringComparison.OrdinalIgnoreCase);
+        bool backendError = !status;
         return new ApiResponseDto<T>
         {
-            Status = backendError ? status : "error",
+            Success = backendError ? status : false,
             Message = backendError && !string.IsNullOrEmpty(message) ? message : InvalidResponseMessage
         };
     }
