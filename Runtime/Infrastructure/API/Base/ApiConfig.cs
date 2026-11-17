@@ -62,6 +62,11 @@ public class ApiConfig : IApiConfig
     public string GOOGLE_WEB_CLIENT_ID => GetConfigValue("GOOGLE_WEB_CLIENT_ID", string.Empty);
 
     /// <summary>
+    /// Gets the private key used for secure communication with the API.
+    /// </summary>
+    public string PRIVATE_KEY => GetConfigValue("PRIVATE_KEY", string.Empty);
+
+    /// <summary>
     /// Gets a configuration value by key, with optional default value.
     /// </summary>
     private string GetConfigValue(string key, string defaultValue = "")

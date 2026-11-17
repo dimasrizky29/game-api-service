@@ -1,4 +1,5 @@
 using System;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using Cysharp.Threading.Tasks;
@@ -445,6 +446,23 @@ public class GameApiService : BaseApiService, IGameApiService
             // Be defensive: SystemInfo access on some platforms might throw in editor tooling
             LoggerService.Warning($"[API] Failed to set device headers: {ex.Message}");
         }
+
+        // Add timestamp header for request signing
+        request.SetRequestHeader("x-timestamp", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString());
+
+        // Add signature header for request signing
+        byte[] bodyBytes = request.uploadHandler?.data;
+        if (bodyBytes != null && bodyBytes.Length > 0)
+        {
+            string jsonBody = Encoding.UTF8.GetString(bodyBytes);
+            // 2. Hitung hash
+            string signature = GenerateSignature(jsonBody, _config.PRIVATE_KEY);
+
+            // 3. Gunakan variabel signature untuk log dan header
+            LoggerService.LogDebug($"[API] Body Payload : {jsonBody}");
+            LoggerService.LogDebug($"[API] Signature security : {signature}");
+            request.SetRequestHeader("x-signature-security", signature);
+        }
     }
 
     private void SetupJsonBody(UnityWebRequest req, object data)
@@ -488,6 +506,69 @@ public class GameApiService : BaseApiService, IGameApiService
         if (response.Code == 440) return true;
         return (response.Body ?? string.Empty).Contains("Token expired.");
     }
+
+    #region Signature Generation
+    private string GenerateSignature(string jsonBody, string secretKey)
+    {
+        if (string.IsNullOrWhiteSpace(jsonBody)) jsonBody = "";
+
+        // 1. Normalisasi JSON agar sama dengan behavior JSON.parse & JSON.stringify di JS
+        string normalizedJson = NormalizeJson(jsonBody);
+
+        // 2. Convert ke Bytes
+        byte[] keyBytes = Encoding.UTF8.GetBytes(secretKey);
+        byte[] bodyBytes = Encoding.UTF8.GetBytes(normalizedJson);
+
+        // 3. Create HMAC SHA256
+        using (HMACSHA256 hmac = new HMACSHA256(keyBytes))
+        {
+            byte[] hashBytes = hmac.ComputeHash(bodyBytes);
+
+            StringBuilder hex = new StringBuilder(hashBytes.Length * 2);
+            foreach (byte b in hashBytes)
+            {
+                hex.AppendFormat("{0:x2}", b);
+            }
+
+            return hex.ToString();
+        }
+    }
+
+    private string NormalizeJson(string jsonBody)
+    {
+        if (string.IsNullOrWhiteSpace(jsonBody)) return jsonBody;
+
+        JToken token = JToken.Parse(jsonBody);
+        NormalizeToken(token);
+
+        // Formatting.None menghapus spasi/indentasi (compact string)
+        return token.ToString(Formatting.None);
+    }
+
+    private void NormalizeToken(JToken token)
+    {
+        if (token is JObject obj)
+        {
+            foreach (var prop in obj.Properties())
+                NormalizeToken(prop.Value);
+        }
+        else if (token is JArray arr)
+        {
+            foreach (var item in arr)
+                NormalizeToken(item);
+        }
+        else if (token is JValue val && val.Type == JTokenType.Float)
+        {
+            double d = Convert.ToDouble(val.Value);
+            // Jika desimal bernilai bulat (misal 1.0 -> 1), konversi ke integer (long)
+            if (d % 1 == 0)
+            {
+                val.Value = (long)d;
+            }
+        }
+    }
+    #endregion
+
 
     #endregion
 }

@@ -7,10 +7,11 @@ public class ApiEndpoints
 {
     public string SignInEmail { get; set; } = "/auth/signin/email";
     public string SignUp { get; set; } = "/auth/sign-up";
-    public string SignInOAuth { get; set; } = "/auth/signin/oauth";
+    public string SignInOAuth { get; set; } = "/auth/sign-in/oauth";
     public string SignOut { get; set; } = "/auth/signout";
     public string Refresh { get; set; } = "/auth/refresh";
-    public string User { get; set; } = "/users";
+    public string User { get; set; } = "/users/profile";
+    public string Create { get; set; } = "/users/create";
     public string Username { get; set; } = "/users/username";
     public string Avatar { get; set; } = "/users/avatar";
     public string Deactivate { get; set; } = "/users/deactivate";

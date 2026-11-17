@@ -70,7 +70,7 @@ public class AuthApiService : IAuthApiService
         string referrer,
         CancellationToken ct = default)
     {
-        var oauthData = new { OAuthToken = oauth, referrer};
+        var oauthData = new { idToken = oauth, referrer};
         string url = $"{_config.API_BASE_URL}{_endpoints.SignInOAuth}";
         return await _apiService.PostAsync<SignInDataDto>(url, oauthData, ct);
     }

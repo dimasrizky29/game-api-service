@@ -33,6 +33,16 @@ public class UserApiService<TUser> : IUserApiService<TUser> where TUser : UserDa
         return await _apiService.GetAsync<TUser>(url, ct);
     }
 
+    public async UniTask<ApiResponseDto<TUser>> CreateProfileAsync(
+        string username,
+        string gender,
+        CancellationToken ct = default)
+    {
+        var data = new { username, gender };
+        string url = $"{_config.API_BASE_URL}{_endpoints.Create}";
+        return await _apiService.PostAsync<TUser>(url, data, ct);
+    }
+
     public async UniTask<ApiResponseDto<TUser>> UpdateUsernameAsync(
         string username,
         CancellationToken ct = default)

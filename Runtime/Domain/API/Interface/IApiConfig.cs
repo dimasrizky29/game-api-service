@@ -9,6 +9,7 @@ public interface IApiConfig
     string GOOGLE_WEB_CLIENT_ID { get; }
     string WEBSOCKET_URL { get; }
     string API_LANDING_URL { get; }
+    string PRIVATE_KEY { get; }
 
     void Reload();
 }

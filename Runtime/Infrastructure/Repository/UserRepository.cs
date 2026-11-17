@@ -28,7 +28,10 @@ public class UserRepository<TUser> : IUserRepository<TUser> where TUser : UserDa
         // Jika belum ada, ambil dari API Service
         var result = await _userApiService.GetUserAsync(ct);
         if (!result.IsSuccess)
-            throw new Exception(result.ErrorMessage);
+        {
+           LoggerService.Error($"Failed to get user data: {result.ErrorMessage}");
+           throw new Exception(result.ErrorMessage);
+        }
 
         _cachedUser = result.Data;
         Notify();
@@ -39,7 +42,10 @@ public class UserRepository<TUser> : IUserRepository<TUser> where TUser : UserDa
     {
         var result = await _userApiService.UpdateUsernameAsync(username, ct);
         if (!result.IsSuccess)
+        {
+            LoggerService.Error($"Failed to update username: {result.ErrorMessage}");
             throw new Exception(result.ErrorMessage);
+        }
 
         // Cache kosong (belum pernah GetUserData): tidak ada yang di-patch, return null.
         if (_cachedUser != null)
